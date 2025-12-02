@@ -1280,7 +1280,7 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     
     <script>
-        // Supabase Configuration
+        // ==================== SUPABASE CONFIGURATION ====================
         const SUPABASE_URL = 'https://ufgrgjtljjtfbqeuonik.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmZ3JnanRsamp0ZmJxZXVvbmlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1NzQyNDIsImV4cCI6MjA4MDE1MDI0Mn0.XpoATRNntFJcVBYeLyY9PuEQ3C3H0LN8WEk1FZI6_Nw';
         
@@ -1288,12 +1288,184 @@
         let supabase;
         try {
             supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            console.log('✅ Supabase initialized successfully');
         } catch (error) {
-            console.log('Supabase initialization error, using localStorage only');
+            console.log('⚠️ Supabase initialization error, using localStorage only');
             supabase = null;
         }
 
-        // DOM Elements
+        // ==================== SUPABASE ADMIN FUNCTIONS ====================
+        async function initializeAdminInSupabase() {
+            try {
+                if (!supabase) {
+                    console.log('Supabase not available, using localStorage');
+                    localStorage.setItem('admin_username', 'admin');
+                    localStorage.setItem('admin_password', 'admin123');
+                    return;
+                }
+                
+                // Check if admin exists in Supabase
+                const { data, error } = await supabase
+                    .from('admin_auth')
+                    .select('username, password')
+                    .eq('username', 'admin')
+                    .single();
+                
+                if (error && error.code === 'PGRST116') { // No rows found
+                    console.log('Creating default admin in Supabase...');
+                    
+                    // Insert default admin
+                    const { error: insertError } = await supabase
+                        .from('admin_auth')
+                        .insert([{
+                            username: 'admin',
+                            password: 'admin123',
+                            created_at: new Date().toISOString()
+                        }]);
+                    
+                    if (insertError) {
+                        console.log('Error creating admin in Supabase:', insertError.message);
+                        localStorage.setItem('admin_username', 'admin');
+                        localStorage.setItem('admin_password', 'admin123');
+                    } else {
+                        console.log('✅ Default admin created in Supabase');
+                        localStorage.setItem('admin_username', 'admin');
+                        localStorage.setItem('admin_password', 'admin123');
+                    }
+                } else if (!error && data) {
+                    console.log('✅ Admin exists in Supabase');
+                    localStorage.setItem('admin_username', data.username);
+                    localStorage.setItem('admin_password', data.password);
+                } else {
+                    console.log('Error checking admin, using localStorage');
+                    localStorage.setItem('admin_username', 'admin');
+                    localStorage.setItem('admin_password', 'admin123');
+                }
+            } catch (error) {
+                console.error('Error initializing admin in Supabase:', error);
+                localStorage.setItem('admin_username', 'admin');
+                localStorage.setItem('admin_password', 'admin123');
+            }
+        }
+
+        async function verifyAdminInSupabase(username, password) {
+            try {
+                if (!supabase) {
+                    console.log('Supabase not available, checking localStorage');
+                    return verifyAdminInLocalStorage(username, password);
+                }
+                
+                const { data, error } = await supabase
+                    .from('admin_auth')
+                    .select('username, password')
+                    .eq('username', username)
+                    .single();
+                
+                if (error) {
+                    console.log('Error fetching from Supabase:', error.message);
+                    return verifyAdminInLocalStorage(username, password);
+                }
+                
+                if (!data) {
+                    return false;
+                }
+                
+                return data.password === password;
+                
+            } catch (error) {
+                console.error('Error verifying admin in Supabase:', error);
+                return verifyAdminInLocalStorage(username, password);
+            }
+        }
+
+        function verifyAdminInLocalStorage(username, password) {
+            const storedUser = localStorage.getItem('admin_username');
+            const storedPass = localStorage.getItem('admin_password');
+            
+            if (storedUser && storedPass) {
+                return username === storedUser && password === storedPass;
+            }
+            
+            // Final fallback to hardcoded
+            return username === 'admin' && password === 'admin123';
+        }
+
+        async function updateAdminInSupabase(newUsername, newPassword) {
+            try {
+                if (!supabase) {
+                    console.log('Supabase not available, updating localStorage only');
+                    return false;
+                }
+                
+                const currentUser = sessionStorage.getItem('current_admin_user') || 'admin';
+                
+                const { error } = await supabase
+                    .from('admin_auth')
+                    .update({
+                        username: newUsername,
+                        password: newPassword,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('username', currentUser);
+                
+                if (error) {
+                    console.log('Error updating admin in Supabase:', error.message);
+                    return false;
+                }
+                
+                console.log('✅ Admin updated in Supabase');
+                return true;
+            } catch (error) {
+                console.error('Error updating admin in Supabase:', error);
+                return false;
+            }
+        }
+
+        // ==================== MAIN AUTH FUNCTIONS ====================
+        async function verifyAdminCredentials(username, password) {
+            return await verifyAdminInSupabase(username, password);
+        }
+
+        async function updateAdminCredentials(newUsername, newPassword) {
+            if (!isSignedIn()) {
+                showToast('You must be signed in to update credentials', 'error');
+                return false;
+            }
+            
+            try {
+                // Update in Supabase
+                let supabaseSuccess = false;
+                if (supabase) {
+                    supabaseSuccess = await updateAdminInSupabase(newUsername, newPassword);
+                }
+                
+                // Always update localStorage (as fallback)
+                localStorage.setItem('admin_username', newUsername);
+                localStorage.setItem('admin_password', newPassword);
+                
+                // Update session
+                sessionStorage.setItem('current_admin_user', newUsername);
+                
+                if (supabaseSuccess) {
+                    showToast('✅ Credentials updated in Supabase and locally', 'success');
+                } else {
+                    showToast('✅ Credentials updated locally', 'success');
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('Error updating credentials:', error);
+                
+                // Fallback to localStorage only
+                localStorage.setItem('admin_username', newUsername);
+                localStorage.setItem('admin_password', newPassword);
+                sessionStorage.setItem('current_admin_user', newUsername);
+                showToast('✅ Credentials updated locally', 'success');
+                return true;
+            }
+        }
+
+        // ==================== DOM ELEMENTS ====================
         const channelsGrid = document.getElementById('channelsGrid');
         const loginBtn = document.getElementById('loginBtn');
         const addBtn = document.getElementById('addBtn');
@@ -1346,13 +1518,12 @@
         const closeDmcaBtns = document.querySelectorAll('.close-dmca');
         const closeDisclaimerBtns = document.querySelectorAll('.close-disclaimer');
 
-        // Constants
+        // ==================== CONSTANTS ====================
         const STORAGE_KEY = 'lurey_channels';
         const FAVORITES_KEY = 'lurey_favorites';
         const SETTINGS_KEY = 'lurey_settings';
-        const ADMIN_KEY = 'lurey_admin';
 
-        // Global Variables
+        // ==================== GLOBAL VARIABLES ====================
         let editingIndex = null;
         let hls = null;
         let currentCategory = 'all';
@@ -1361,9 +1532,8 @@
         let isMuted = false;
         let uploadedLogoFile = null;
         let currentChannelId = null;
-        let adminCredentials = null;
 
-        // Default Channels (for fallback)
+        // ==================== DEFAULT CHANNELS ====================
         const defaultChannels = [
             {
                 id: '1',
@@ -1391,27 +1561,201 @@
             }
         ];
 
-        // Initialize App
+        // ==================== INITIALIZE APP ====================
         document.addEventListener('DOMContentLoaded', initApp);
 
         async function initApp() {
-            console.log('Initializing app...');
+            console.log('🚀 Initializing LK CricTV Pro...');
             try {
                 loadSettings();
                 loadFavorites();
-                await loadAdminCredentials();
+                
+                // Initialize Supabase admin system
+                await initializeAdminInSupabase();
+                
                 updateAuthUI();
                 loadChannels();
                 setupEventListeners();
                 showToast('Welcome to LK CricTV Pro!', 'success');
             } catch (error) {
                 console.error('Init error:', error);
-                showToast('App loaded with basic features', 'info');
+                showToast('App loaded successfully', 'info');
             }
         }
 
-        // ==================== BASIC FUNCTIONS ====================
+        // ==================== AUTHENTICATION FUNCTIONS ====================
+        function isSignedIn() {
+            return sessionStorage.getItem('lurey_signed_in') === '1';
+        }
 
+        function setSignedIn(flag, username = '') {
+            if (flag) {
+                sessionStorage.setItem('lurey_signed_in', '1');
+                sessionStorage.setItem('current_admin_user', username);
+            } else {
+                sessionStorage.removeItem('lurey_signed_in');
+                sessionStorage.removeItem('current_admin_user');
+            }
+            updateAuthUI();
+            renderGrid(readChannels());
+        }
+
+        function updateAuthUI() {
+            const headerRight = document.querySelector('.header-right');
+            
+            if (isSignedIn()) {
+                const currentUser = sessionStorage.getItem('current_admin_user') || 'admin';
+                userInfo.textContent = `Signed in as ${currentUser}`;
+                userInfo.style.display = 'block';
+                loginBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
+                addBtn.style.display = 'inline-block';
+                
+                // Add change password button if it doesn't exist
+                if (!document.getElementById('changePassBtn')) {
+                    const changePassBtn = document.createElement('button');
+                    changePassBtn.id = 'changePassBtn';
+                    changePassBtn.className = 'ghost';
+                    changePassBtn.innerHTML = '<i class="fas fa-key"></i> Change Password';
+                    changePassBtn.style.display = 'inline-block';
+                    changePassBtn.addEventListener('click', showChangePasswordModal);
+                    headerRight.insertBefore(changePassBtn, loginBtn);
+                } else {
+                    document.getElementById('changePassBtn').style.display = 'inline-block';
+                }
+            } else {
+                userInfo.textContent = 'Not signed in';
+                userInfo.style.display = 'none';
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+                addBtn.style.display = 'none';
+                
+                // Hide change password button if it exists
+                const changePassBtn = document.getElementById('changePassBtn');
+                if (changePassBtn) {
+                    changePassBtn.style.display = 'none';
+                }
+            }
+        }
+
+        function showChangePasswordModal() {
+            // Remove existing modal if any
+            const existingModal = document.getElementById('changePassModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            const currentUser = sessionStorage.getItem('current_admin_user') || 'admin';
+            
+            const modalHtml = `
+                <div class="modal-backdrop" id="changePassModal">
+                    <div class="modal">
+                        <div class="modal-header">
+                            <h2>
+                                <i class="fas fa-key"></i>
+                                Change Admin Credentials
+                            </h2>
+                            <button id="closeChangePass">
+                                <i class="fas fa-times"></i>
+                                Close
+                            </button>
+                        </div>
+                        <form id="changePassForm">
+                            <label>Current Username</label>
+                            <input type="text" id="currentUser" value="${currentUser}" disabled>
+                            
+                            <label>New Username</label>
+                            <input type="text" id="newUser" placeholder="Enter new username" value="${currentUser}">
+                            
+                            <label>Current Password</label>
+                            <input type="password" id="currentPass" placeholder="Enter current password" required>
+                            
+                            <label>New Password</label>
+                            <input type="password" id="newPass" placeholder="Enter new password" required>
+                            
+                            <label>Confirm New Password</label>
+                            <input type="password" id="confirmPass" placeholder="Confirm new password" required>
+                            
+                            <div class="form-actions">
+                                <button type="button" id="cancelChangePass" class="ghost">Cancel</button>
+                                <button type="submit">Update Credentials</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            const changePassModal = document.getElementById('changePassModal');
+            const changePassForm = document.getElementById('changePassForm');
+            const cancelChangePass = document.getElementById('cancelChangePass');
+            const closeChangePass = document.getElementById('closeChangePass');
+            
+            changePassModal.style.display = 'flex';
+            
+            changePassForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const currentUser = sessionStorage.getItem('current_admin_user') || 'admin';
+                const newUser = document.getElementById('newUser').value.trim() || currentUser;
+                const currentPass = document.getElementById('currentPass').value;
+                const newPass = document.getElementById('newPass').value;
+                const confirmPass = document.getElementById('confirmPass').value;
+                
+                if (!currentPass || !newPass) {
+                    showToast('Please fill all password fields', 'error');
+                    return;
+                }
+                
+                if (newPass !== confirmPass) {
+                    showToast('New passwords do not match', 'error');
+                    return;
+                }
+                
+                // Verify current password
+                const isValid = await verifyAdminCredentials(currentUser, currentPass);
+                if (!isValid) {
+                    showToast('Current password is incorrect', 'error');
+                    return;
+                }
+                
+                // Update credentials
+                const success = await updateAdminCredentials(newUser, newPass);
+                if (success) {
+                    changePassModal.style.display = 'none';
+                    changePassModal.remove();
+                    updateAuthUI();
+                }
+            });
+            
+            cancelChangePass.addEventListener('click', () => {
+                changePassModal.style.display = 'none';
+                changePassModal.remove();
+            });
+            
+            closeChangePass.addEventListener('click', () => {
+                changePassModal.style.display = 'none';
+                changePassModal.remove();
+            });
+            
+            changePassModal.addEventListener('click', (e) => {
+                if (e.target === changePassModal) {
+                    changePassModal.style.display = 'none';
+                    changePassModal.remove();
+                }
+            });
+            
+            // Escape key to close
+            const handleEscape = (e) => {
+                if (e.key === 'Escape' && changePassModal.style.display === 'flex') {
+                    changePassModal.style.display = 'none';
+                    changePassModal.remove();
+                    document.removeEventListener('keydown', handleEscape);
+                }
+            };
+            document.addEventListener('keydown', handleEscape);
+        }
+
+        // ==================== CHANNEL MANAGEMENT ====================
         function loadChannels() {
             const channels = readChannels();
             renderGrid(channels);
@@ -1421,7 +1765,6 @@
             try {
                 const raw = localStorage.getItem(STORAGE_KEY);
                 if (!raw) {
-                    console.log('No channels found, creating default channels');
                     saveChannels(defaultChannels);
                     return defaultChannels;
                 }
@@ -1502,248 +1845,7 @@
             }
         }
 
-        // ==================== ADMIN FUNCTIONS ====================
-
-        async function loadAdminCredentials() {
-            try {
-                const raw = localStorage.getItem(ADMIN_KEY);
-                if (raw) {
-                    adminCredentials = JSON.parse(raw);
-                } else {
-                    // Create default admin
-                    adminCredentials = {
-                        username: 'admin',
-                        password: 'admin123',
-                        created: new Date().toISOString()
-                    };
-                    localStorage.setItem(ADMIN_KEY, JSON.stringify(adminCredentials));
-                }
-                return adminCredentials;
-            } catch (error) {
-                console.error('Error loading admin credentials:', error);
-                // Fallback to hardcoded
-                adminCredentials = {
-                    username: 'admin',
-                    password: 'admin123',
-                    created: new Date().toISOString()
-                };
-                return adminCredentials;
-            }
-        }
-
-        function saveAdminCredentials(creds) {
-            try {
-                localStorage.setItem(ADMIN_KEY, JSON.stringify(creds));
-                adminCredentials = creds;
-                return true;
-            } catch (error) {
-                console.error('Error saving admin credentials:', error);
-                return false;
-            }
-        }
-
-        function verifyAdminCredentials(username, password) {
-            if (!adminCredentials) {
-                loadAdminCredentials();
-            }
-            return username === adminCredentials.username && password === adminCredentials.password;
-        }
-
-        function updateAdminCredentials(newUsername, newPassword) {
-            if (!isSignedIn()) {
-                showToast('You must be signed in to update credentials', 'error');
-                return false;
-            }
-            
-            const newCreds = {
-                username: newUsername,
-                password: newPassword,
-                updated: new Date().toISOString(),
-                created: adminCredentials.created
-            };
-            
-            const success = saveAdminCredentials(newCreds);
-            if (success) {
-                sessionStorage.setItem('current_admin_user', newUsername);
-                showToast('Credentials updated successfully', 'success');
-                return true;
-            } else {
-                showToast('Error updating credentials', 'error');
-                return false;
-            }
-        }
-
-        // ==================== AUTH FUNCTIONS ====================
-
-        function isSignedIn() {
-            return sessionStorage.getItem('lurey_signed_in') === '1';
-        }
-
-        function setSignedIn(flag, username = '') {
-            if (flag) {
-                sessionStorage.setItem('lurey_signed_in', '1');
-                sessionStorage.setItem('current_admin_user', username);
-            } else {
-                sessionStorage.removeItem('lurey_signed_in');
-                sessionStorage.removeItem('current_admin_user');
-            }
-            updateAuthUI();
-            renderGrid(readChannels());
-        }
-
-        function updateAuthUI() {
-            const headerRight = document.querySelector('.header-right');
-            
-            if (isSignedIn()) {
-                const currentUser = sessionStorage.getItem('current_admin_user') || 'admin';
-                userInfo.textContent = `Signed in as ${currentUser}`;
-                userInfo.style.display = 'block';
-                loginBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
-                addBtn.style.display = 'inline-block';
-                
-                // Add change password button if it doesn't exist
-                if (!document.getElementById('changePassBtn')) {
-                    const changePassBtn = document.createElement('button');
-                    changePassBtn.id = 'changePassBtn';
-                    changePassBtn.className = 'ghost';
-                    changePassBtn.innerHTML = '<i class="fas fa-key"></i> Change Password';
-                    changePassBtn.style.display = 'inline-block';
-                    changePassBtn.addEventListener('click', showChangePasswordModal);
-                    headerRight.insertBefore(changePassBtn, loginBtn);
-                } else {
-                    document.getElementById('changePassBtn').style.display = 'inline-block';
-                }
-            } else {
-                userInfo.textContent = 'Not signed in';
-                userInfo.style.display = 'none';
-                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
-                addBtn.style.display = 'none';
-                
-                // Hide change password button if it exists
-                const changePassBtn = document.getElementById('changePassBtn');
-                if (changePassBtn) {
-                    changePassBtn.style.display = 'none';
-                }
-            }
-        }
-
-        function showChangePasswordModal() {
-            // Remove existing modal if any
-            const existingModal = document.getElementById('changePassModal');
-            if (existingModal) {
-                existingModal.remove();
-            }
-            
-            const modalHtml = `
-                <div class="modal-backdrop" id="changePassModal">
-                    <div class="modal">
-                        <div class="modal-header">
-                            <h2>
-                                <i class="fas fa-key"></i>
-                                Change Admin Credentials
-                            </h2>
-                            <button id="closeChangePass">
-                                <i class="fas fa-times"></i>
-                                Close
-                            </button>
-                        </div>
-                        <form id="changePassForm">
-                            <label>Current Username</label>
-                            <input type="text" id="currentUser" value="${sessionStorage.getItem('current_admin_user') || 'admin'}" disabled>
-                            
-                            <label>New Username</label>
-                            <input type="text" id="newUser" placeholder="Enter new username" value="${sessionStorage.getItem('current_admin_user') || 'admin'}">
-                            
-                            <label>Current Password</label>
-                            <input type="password" id="currentPass" placeholder="Enter current password" required>
-                            
-                            <label>New Password</label>
-                            <input type="password" id="newPass" placeholder="Enter new password" required>
-                            
-                            <label>Confirm New Password</label>
-                            <input type="password" id="confirmPass" placeholder="Confirm new password" required>
-                            
-                            <div class="form-actions">
-                                <button type="button" id="cancelChangePass" class="ghost">Cancel</button>
-                                <button type="submit">Update Credentials</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            `;
-            
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            
-            const changePassModal = document.getElementById('changePassModal');
-            const changePassForm = document.getElementById('changePassForm');
-            const cancelChangePass = document.getElementById('cancelChangePass');
-            const closeChangePass = document.getElementById('closeChangePass');
-            
-            changePassModal.style.display = 'flex';
-            
-            changePassForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                const currentUser = sessionStorage.getItem('current_admin_user') || 'admin';
-                const newUser = document.getElementById('newUser').value.trim() || currentUser;
-                const currentPass = document.getElementById('currentPass').value;
-                const newPass = document.getElementById('newPass').value;
-                const confirmPass = document.getElementById('confirmPass').value;
-                
-                if (!currentPass || !newPass) {
-                    showToast('Please fill all password fields', 'error');
-                    return;
-                }
-                
-                if (newPass !== confirmPass) {
-                    showToast('New passwords do not match', 'error');
-                    return;
-                }
-                
-                const isValid = verifyAdminCredentials(currentUser, currentPass);
-                if (!isValid) {
-                    showToast('Current password is incorrect', 'error');
-                    return;
-                }
-                
-                const success = updateAdminCredentials(newUser, newPass);
-                if (success) {
-                    changePassModal.style.display = 'none';
-                    changePassModal.remove();
-                    updateAuthUI();
-                }
-            });
-            
-            cancelChangePass.addEventListener('click', () => {
-                changePassModal.style.display = 'none';
-                changePassModal.remove();
-            });
-            
-            closeChangePass.addEventListener('click', () => {
-                changePassModal.style.display = 'none';
-                changePassModal.remove();
-            });
-            
-            changePassModal.addEventListener('click', (e) => {
-                if (e.target === changePassModal) {
-                    changePassModal.style.display = 'none';
-                    changePassModal.remove();
-                }
-            });
-            
-            // Escape key to close
-            const handleEscape = (e) => {
-                if (e.key === 'Escape' && changePassModal.style.display === 'flex') {
-                    changePassModal.style.display = 'none';
-                    changePassModal.remove();
-                    document.removeEventListener('keydown', handleEscape);
-                }
-            };
-            document.addEventListener('keydown', handleEscape);
-        }
-
         // ==================== UI FUNCTIONS ====================
-
         function renderGrid(channels) {
             const searchTerm = searchInput.value.toLowerCase().trim();
             
@@ -1864,8 +1966,7 @@
             }, 3000);
         }
 
-        // ==================== CHANNEL MANAGEMENT ====================
-
+        // ==================== CHANNEL OPERATIONS ====================
         function openAddChannel() {
             editingIndex = null;
             currentChannelId = null;
@@ -1992,7 +2093,6 @@
         }
 
         // ==================== PLAYER FUNCTIONS ====================
-
         function showSourceSelection(channel) {
             const links = channel.links || [];
             const embed = channel.embed || '';
@@ -2194,7 +2294,6 @@
         }
 
         // ==================== EVENT LISTENERS ====================
-
         function setupEventListeners() {
             console.log('Setting up event listeners...');
             
@@ -2351,14 +2450,14 @@
                     return;
                 }
                 
-                const isValid = verifyAdminCredentials(u, p);
+                const isValid = await verifyAdminCredentials(u, p);
                 
                 if (isValid) {
                     setSignedIn(true, u);
                     loginModal.style.display = 'none';
                     loginUser.value = '';
                     loginPass.value = '';
-                    showToast('Signed in successfully', 'success');
+                    showToast('✅ Signed in successfully', 'success');
                 } else {
                     showToast('Invalid credentials', 'error');
                 }
@@ -2524,7 +2623,7 @@
                 }
             });
             
-            console.log('Event listeners setup complete');
+            console.log('✅ Event listeners setup complete');
         }
 
         function saveChannelData(name, logo, embed, category, links, originalText) {
@@ -2563,14 +2662,14 @@
             setLinksToForm(['']);
             
             renderGrid(channels);
-            showToast('Channel saved successfully', 'success');
+            showToast('✅ Channel saved successfully', 'success');
             
             saveChannelBtn.innerHTML = originalText;
             saveChannelBtn.disabled = false;
         }
 
         // Initialize on load
-        console.log('Script loaded successfully');
+        console.log('✅ Script loaded successfully');
     </script>
 </body>
 </html>
